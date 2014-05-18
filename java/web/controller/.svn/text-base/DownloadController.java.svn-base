@@ -1,0 +1,71 @@
+/**
+ * DownloadController.java
+ * 
+ * $Author: cysun $
+ * $Date: 2011-09-24 00:13:02 -0700 (Sat, 24 Sep 2011) $
+ */
+package csns.web.controller;
+
+import javax.servlet.http.HttpServletResponse;
+
+//import org.slf4j.Logger;
+//import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.ModelMap;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import csns.model.core.File;
+import csns.model.core.dao.FileDao;
+//import csns.security.SecurityUtils;
+import csns.util.ApplicationProperties;
+import csns.util.MimeTyper;
+
+@Controller
+public class DownloadController {
+
+    @Autowired
+    FileDao fileDao;
+
+    @Autowired
+    ApplicationProperties applicationProperties;
+
+    @Autowired
+    MimeTyper mimeTyper;
+
+    //private static Logger logger = LoggerFactory.getLogger( DownloadController.class );
+
+    @RequestMapping("/download.html")
+    public String download( @RequestParam Long fileId,
+        @RequestParam(required = false) Integer version,
+        HttpServletResponse response, ModelMap models ) throws Exception
+    {
+        File file = fileDao.getFileById( fileId );
+
+        if( file.isDeleted() )
+        {
+            models.addAttribute( "errorKey", "error.file.download" )
+                .addAttribute( "errorCauseKey", "error.file.deleted" );
+            return "error";
+        }
+
+        if( mimeTyper.isTextType( file.getFileExtension() ) )
+            response.setContentType( "text/plain" );
+        else
+            response.setContentType( file.getType() );
+        response.setHeader( "Content-Disposition", "inline;filename="
+            + file.getName().replace( ' ', '_' ) );
+
+        file.setBaseDir( applicationProperties.getProperty( "app.dir.file" ) );
+        if( version != null ) file.setVersion( version );
+
+        file.read( response.getOutputStream() );
+
+        //logger.info( SecurityUtils.getCurrentUser().getUsername()
+        //    + " downloaded " + file.getId() + " version " + file.getVersion() );
+
+        return null;
+    }
+
+}

@@ -1,0 +1,130 @@
+/**
+ * SubmissionController.java
+ * 
+ * $Author: cysun $
+ * $Date: 2011-10-07 15:08:42 -0700 (Fri, 07 Oct 2011) $
+ */
+package csns.web.controller.instructor;
+
+import java.io.IOException;
+import java.util.Calendar;
+import java.util.Set;
+
+import javax.servlet.http.HttpServletResponse;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.ModelMap;
+import org.springframework.web.bind.WebDataBinder;
+import org.springframework.web.bind.annotation.InitBinder;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.context.request.WebRequest;
+
+import csns.model.assignment.Assignment;
+import csns.model.assignment.OnlineAssignment;
+import csns.model.assignment.OnlineSubmission;
+import csns.model.assignment.Submission;
+import csns.model.assignment.dao.AssignmentDao;
+import csns.model.assignment.dao.SubmissionDao;
+import csns.model.core.User;
+import csns.web.editor.CustomCalendarEditor;
+
+@Controller("instructor/SubmissionController")
+public class SubmissionController {
+
+    @Autowired
+    private AssignmentDao assignmentDao;
+
+    @Autowired
+    private SubmissionDao submissionDao;
+
+    @InitBinder
+    public void initBinder( WebDataBinder binder, WebRequest request )
+    {
+        binder.registerCustomEditor( Calendar.class, new CustomCalendarEditor(
+            "MM/dd/yyyy HH:mm:ss" ) );
+    }
+
+    @RequestMapping("/instructor/viewSubmissions.html")
+    public String viewSubmissions( @RequestParam Long assignmentId,
+        ModelMap models )
+    {
+        Assignment assignment = assignmentDao.getAssignmentById( assignmentId );
+        assignment.filterSubmissions();
+
+        Set<User> students = assignment.getSection().getStudents();
+        if( students.size() != assignment.getSubmissionCount() )
+        {
+            for( User student : students )
+            {
+                Submission submission = assignment.getSubmissionByStudent( student );
+                if( submission == null )
+                {
+                    submission = !assignment.isOnline() ? new Submission()
+                        : new OnlineSubmission( (OnlineAssignment) assignment );
+                    submission.setStudent( student );
+                    submission.setAssignment( assignment );
+                    assignment.addSubmission( submission );
+                }
+            }
+            assignmentDao.saveAssignment( assignment );
+        }
+
+        models.addAttribute( "assignment", assignment );
+        return "instructor/viewSubmissions";
+    }
+
+    @RequestMapping("/instructor/viewSubmission.html")
+    public String viewSubmission( @RequestParam Long submissionId,
+        ModelMap models )
+    {
+        models.addAttribute( "submission",
+            submissionDao.getSubmissionById( submissionId ) );
+        return "instructor/viewSubmission";
+    }
+
+    @RequestMapping("/instructor/editSubmissionDueDate.html")
+    public String editSubmissionDueDate( @RequestParam Long submissionId,
+        @RequestParam Calendar dueDate )
+    {
+        Submission submission = submissionDao.getSubmissionById( submissionId );
+        submission.setDueDate( dueDate );
+        submissionDao.saveSubmission( submission );
+        return "redirect:viewSubmission.html?submissionId=" + submissionId;
+    }
+
+    @RequestMapping("/instructor/editSubmissionGrade.html")
+    public String editSubmissionGrade( @RequestParam Long submissionId,
+        @RequestParam String value, HttpServletResponse response )
+        throws IOException
+    {
+        Submission submission = submissionDao.getSubmissionById( submissionId );
+        String grade = submission.getGrade();
+        if( grade == null || !grade.equals( value ) )
+        {
+            submission.setGrade( value.trim() );
+            submission.setGradeMailed( false );
+            submissionDao.saveSubmission( submission );
+        }
+
+        response.setContentType( "text/plain" );
+        response.getWriter().print( submission.getGrade() );
+        return null;
+    }
+
+    @RequestMapping("/instructor/editSubmissionComments.html")
+    public String editSubmissionComments( @RequestParam Long submissionId,
+        @RequestParam String value, HttpServletResponse response )
+        throws IOException
+    {
+        Submission submission = submissionDao.getSubmissionById( submissionId );
+        submission.setComments( value.trim() );
+        submissionDao.saveSubmission( submission );
+
+        response.setContentType( "text/plain" );
+        response.getWriter().print( submission.getComments() );
+        return null;
+    }
+
+}

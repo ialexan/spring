@@ -1,0 +1,147 @@
+/**
+ * SectionController.java
+ * 
+ * $Author: cysun $
+ * $Date: 2011-09-24 00:13:02 -0700 (Sat, 24 Sep 2011) $
+ */
+package csns.web.controller.instructor;
+
+import java.util.List;
+
+import javax.servlet.http.HttpSession;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.ModelMap;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import csns.model.academics.Course;
+import csns.model.academics.Quarter;
+import csns.model.academics.Section;
+import csns.model.academics.dao.CourseDao;
+import csns.model.academics.dao.QuarterDao;
+import csns.model.academics.dao.SectionDao;
+import csns.model.assignment.Assignment;
+import csns.model.assignment.AssignmentTemplate;
+import csns.model.assignment.OnlineAssignment;
+import csns.model.core.Subscription;
+import csns.model.core.User;
+import csns.model.core.dao.SubscriptionDao;
+import csns.model.core.dao.UserDao;
+import csns.model.forum.Forum;
+import csns.model.forum.dao.ForumDao;
+import csns.security.SecurityUtils;
+
+@Controller("instructor/SectionController")
+public class SectionController {
+
+    @Autowired
+    private UserDao userDao;
+
+    @Autowired
+    private CourseDao courseDao;
+
+    @Autowired
+    private SectionDao sectionDao;
+
+    @Autowired
+    private QuarterDao quarterDao;
+
+    @Autowired
+    private ForumDao forumDao;
+
+    @Autowired
+    private SubscriptionDao subscriptionDao;
+
+    private Logger logger = LoggerFactory.getLogger( SectionController.class );
+
+    @RequestMapping("/instructor/viewSections.html")
+    public String viewSections( @RequestParam(value = "quarter",
+        required = false) Integer quarterCode, HttpSession session,
+        ModelMap models )
+    {
+        Quarter quarter;
+        if( quarterCode != null )
+        {
+            quarter = new Quarter( quarterCode );
+            session.setAttribute( "quarter", quarter );
+        }
+        else if( session.getAttribute( "quarter" ) != null )
+            quarter = (Quarter) session.getAttribute( "quarter" );
+        else
+            quarter = new Quarter();
+
+        User user = SecurityUtils.getCurrentUser();
+        List<Section> sections = sectionDao.getSectionsByInstructor( user,
+            quarter );
+        List<Quarter> quarters = quarterDao.getQuartersByInstructor( user );
+
+        // session.setAttribute("instructor", user);
+       
+        models.addAttribute( "quarter", quarter );
+        models.addAttribute( "sections", sections );
+        models.addAttribute( "quarters", quarters );
+
+        return "instructor/viewSections";
+    }
+
+    @RequestMapping("/instructor/addSection.html")
+    public String addSection( @RequestParam("quarter") Integer quarterCode,
+        @RequestParam Long courseId )
+    {
+        // We need a managed User object here
+        User user = userDao.getUserById( SecurityUtils.getCurrentUserId() );
+
+        Quarter quarter = new Quarter( quarterCode );
+        Course course = courseDao.getCourseById( courseId );
+        Section section = sectionDao.addSection( quarter, course, user );
+
+        if( course.isAutoCreateAssignments() )
+        {
+            for( AssignmentTemplate assignmentTemplate : course.getAssignmentTemplates() )
+            {
+                Assignment assignment;
+                if( assignmentTemplate.isOnline() )
+                {
+                    assignment = new OnlineAssignment( assignmentTemplate );
+                    assignment.setDueDate( null );
+                    ((OnlineAssignment) assignment).getQuestionSheet()
+                        .setCreator( user );
+                    ((OnlineAssignment) assignment).setPublishDate( null );
+                }
+                else
+                {
+                    assignment = new Assignment( assignmentTemplate );
+                    assignment.setDueDate( null );
+                }
+                assignment.setSection( section );
+                section.getAssignments().add( assignment );
+            }
+
+            sectionDao.saveSection( section );
+        }
+
+        Forum forum = forumDao.getForumByCourse( course );
+        Subscription subscription = subscriptionDao.getSubscription( forum,
+            user );
+        if( subscription == null ) subscriptionDao.subscribe( forum, user );
+
+        if( !user.getSelectedForums().contains( forum ) )
+        {
+            user.getSelectedForums().add( forum );
+            userDao.saveUser( user );
+        }
+
+        forum.getModerators().add( user );
+        forumDao.saveForum( forum );
+
+        logger.info( user.getUsername() + " added " + course.getCode() + "-"
+            + section.getNumber() + " for " + quarter );
+
+        return "redirect:viewSections.html";
+    }
+
+}

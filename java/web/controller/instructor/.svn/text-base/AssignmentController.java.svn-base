@@ -1,0 +1,140 @@
+/**
+ * AssignmentController.java
+ * 
+ * $Author: cysun $
+ * $Date: 2011-10-07 15:08:42 -0700 (Fri, 07 Oct 2011) $
+ */
+package csns.web.controller.instructor;
+
+import java.util.Calendar;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.ModelMap;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.WebDataBinder;
+import org.springframework.web.bind.annotation.InitBinder;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.SessionAttributes;
+import org.springframework.web.bind.support.SessionStatus;
+import org.springframework.web.context.request.WebRequest;
+
+import csns.model.academics.Section;
+import csns.model.academics.dao.SectionDao;
+import csns.model.assignment.Assignment;
+import csns.model.assignment.AssignmentTemplate;
+import csns.model.assignment.OnlineAssignment;
+import csns.model.assignment.dao.AssignmentDao;
+import csns.model.assignment.dao.AssignmentTemplateDao;
+import csns.model.core.User;
+import csns.security.SecurityUtils;
+import csns.web.editor.CustomCalendarEditor;
+import csns.web.validator.AssignmentValidator;
+
+@Controller
+@SessionAttributes("assignment")
+public class AssignmentController {
+
+    @Autowired
+    private SectionDao sectionDao;
+
+    @Autowired
+    private AssignmentDao assignmentDao;
+
+    @Autowired
+    private AssignmentTemplateDao assignmentTemplateDao;
+
+    @Autowired
+    private AssignmentValidator assignmentValidator;
+
+    @InitBinder
+    public void initBinder( WebDataBinder binder, WebRequest request )
+    {
+        binder.registerCustomEditor( Calendar.class, new CustomCalendarEditor(
+            "MM/dd/yyyy HH:mm:ss" ) );
+    }
+
+    @RequestMapping(value = "/instructor/addAssignment.html",
+        method = RequestMethod.GET)
+    public String addAssignment(
+        @RequestParam(required = false) Long templateId,
+        @RequestParam Long sectionId, ModelMap models )
+    {
+        Assignment assignment = new Assignment();
+        if( templateId != null )
+        {
+            AssignmentTemplate assignmentTemplate = assignmentTemplateDao.getAssignmentTemplateById( templateId );
+            assignment = assignmentTemplate.isOnline() ? new OnlineAssignment(
+                assignmentTemplate ) : new Assignment( assignmentTemplate );
+        }
+
+        Section section = sectionDao.getSectionById( sectionId );
+
+        models.addAttribute( "assignment", assignment );
+        models.addAttribute( "section", section );
+
+        return "instructor/addAssignment";
+    }
+
+    @RequestMapping(value = "/instructor/addAssignment.html",
+        method = RequestMethod.POST)
+    public String addAssignment( @ModelAttribute Assignment assignment,
+        BindingResult result, @RequestParam Long sectionId,
+        SessionStatus sessionStatus )
+    {
+        assignmentValidator.validate( assignment, result );
+        if( result.hasErrors() ) return "instructor/addAssignment";
+
+        if( assignment.isOnline() )
+        {
+            User user = SecurityUtils.getCurrentUser();
+            ((OnlineAssignment) assignment).getQuestionSheet()
+                .setCreator( user );
+        }
+
+        Section section = sectionDao.getSectionById( sectionId );
+        assignment.setSection( section );
+        section.getAssignments().add( assignment );
+        sectionDao.saveSection( section );
+
+        sessionStatus.setComplete();
+        return "redirect:viewSections.html";
+    }
+
+    @RequestMapping(value = "/instructor/editAssignment.html",
+        method = RequestMethod.GET)
+    public String editAssignment( @RequestParam Long assignmentId,
+        ModelMap models )
+    {
+        models.addAttribute( "assignment",
+            assignmentDao.getAssignmentById( assignmentId ) );
+
+        return "instructor/editAssignment";
+    }
+
+    @RequestMapping(value = "/instructor/editAssignment.html",
+        method = RequestMethod.POST)
+    public String editAssignment( @ModelAttribute Assignment assignment,
+        BindingResult result, SessionStatus sessionStatus )
+    {
+        assignmentValidator.validate( assignment, result );
+        if( result.hasErrors() ) return "instructor/editAssignment";
+
+        assignmentDao.saveAssignment( assignment );
+        sessionStatus.setComplete();
+        return "redirect:viewSections.html";
+    }
+
+    @RequestMapping("/instructor/deleteAssignment.html")
+    public String deleteAssignment( @RequestParam Long assignmentId )
+    {
+        Assignment assignment = assignmentDao.getAssignmentById( assignmentId );
+        assignment.setSection( null );
+        assignmentDao.saveAssignment( assignment );
+        return "redirect:viewSections.html";
+    }
+
+}
